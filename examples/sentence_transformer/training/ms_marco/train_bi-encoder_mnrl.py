@@ -246,8 +246,8 @@ class MSMARCODataset(Dataset):
         neg_text = self.corpus[neg_id]
         query["neg"].append(neg_id)
 
-        return InputExample(texts=[query_text, pos_text, neg_text])
-
+        return InputExample(texts={"query": query_text, "pos": pos_text, "neg": neg_text}
+)
     def __len__(self):
         return len(self.queries)
 
