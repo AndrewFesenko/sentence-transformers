@@ -30,7 +30,16 @@ from datetime import datetime
 import tqdm
 from torch.utils.data import DataLoader, Dataset
 
-from sentence_transformers import InputExample, LoggingHandler, SentenceTransformer, losses, models, util
+from sentence_transformers import (
+    InputExample,
+    LoggingHandler,
+    SentenceTransformer,
+    SentenceTransformerTrainer,
+    SentenceTransformerTrainingArguments,
+    losses,
+    models,
+    util,
+)
 
 #### Just some code to print debug information to stdout
 logging.basicConfig(
@@ -237,27 +246,41 @@ class MSMARCODataset(Dataset):
         neg_text = self.corpus[neg_id]
         query["neg"].append(neg_id)
 
-        return InputExample(texts=[query_text, pos_text, neg_text])
-
+        return InputExample(texts={"query": query_text, "pos": pos_text, "neg": neg_text}
+)
     def __len__(self):
         return len(self.queries)
 
 
 # For training the SentenceTransformer model, we need a dataset, a dataloader, and a loss used for training.
 train_dataset = MSMARCODataset(train_queries, corpus=corpus)
-train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=train_batch_size)
 train_loss = losses.MultipleNegativesRankingLoss(model=model)
 
-# Train the model
-model.fit(
-    train_objectives=[(train_dataloader, train_loss)],
-    epochs=num_epochs,
+# Uses SentenceTransformerTrainer instead of model.fit
+steps_per_epoch = max(1, len(train_dataset) // train_batch_size)
+
+training_args = SentenceTransformerTrainingArguments(
+    output_dir=model_save_path,
+    num_train_epochs=num_epochs,
+    per_device_train_batch_size=train_batch_size,
     warmup_steps=args.warmup_steps,
-    use_amp=True,
-    checkpoint_path=model_save_path,
-    checkpoint_save_steps=len(train_dataloader),
-    optimizer_params={"lr": args.lr},
+    learning_rate=args.lr,
+    fp16=True,
+    save_strategy="steps",
+    save_steps=steps_per_epoch,
+    save_total_limit=2,
+    logging_steps=100,
+    report_to="none",
 )
+
+trainer = SentenceTransformerTrainer(
+    model=model,
+    args=training_args,
+    train_dataset=train_dataset,
+    loss=train_loss,
+)
+
+trainer.train()
 
 # Save the model
 model.save(model_save_path)
